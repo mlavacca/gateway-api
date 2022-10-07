@@ -405,7 +405,7 @@ const (
 	// Listener has a TLS configuration with at least one TLS CertificateRef
 	// that is invalid or does not exist.
 	// A CertificateRef is considered invalid when it refers to a nonexistent
-	// or unsupported resource or kind, or when the data within that resource
+	// or unsupported group or kind, or when the data within that resource
 	// is malformed.
 	// This reason must be used only when the reference is allowed, either by
 	// referencing an object in the same namespace as the Gateway, or when
