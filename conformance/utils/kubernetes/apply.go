@@ -33,8 +33,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	v1 "sigs.k8s.io/gateway-api/apis/v1"
 	"sigs.k8s.io/gateway-api/apis/v1beta1"
 	"sigs.k8s.io/gateway-api/conformance/utils/config"
 	"sigs.k8s.io/gateway-api/conformance/utils/tlog"
@@ -62,6 +64,46 @@ type Applier struct {
 	// UnusableNetworkAddresses is a list of addresses that are expected to be
 	// supported, but not usable for Gateways in the underlying implementation.
 	UnusableNetworkAddresses []v1beta1.GatewayAddress
+}
+
+// TODO: comment
+func (a Applier) prepareHTTPRoute(t *testing.T, uObj *unstructured.Unstructured, pathMatcher *string) {
+	ns := uObj.GetNamespace()
+	name := uObj.GetName()
+
+	httpRoute := &v1beta1.HTTPRoute{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(uObj.Object, httpRoute)
+	require.NoError(t, err, "error converting unstructured object to HTTPRoute", ns, name)
+
+	for i, rule := range httpRoute.Spec.Rules {
+		var matches []v1.HTTPRouteMatch
+		if len(rule.Matches) == 0 {
+			matches = []v1.HTTPRouteMatch{
+				{
+					Path: &v1.HTTPPathMatch{
+						// Default type is Prefix
+						Value: pathMatcher,
+					},
+				},
+			}
+		} else {
+			matches = rule.Matches
+			for _, match := range matches {
+				if match.Path != nil {
+					match.Path.Value = ptr.To("/" + *pathMatcher + "/" + *match.Path.Value)
+				} else {
+					match.Path = &v1.HTTPPathMatch{
+						// Default type is Prefix
+						Value: pathMatcher,
+					}
+				}
+			}
+		}
+		httpRoute.Spec.Rules[i].Matches = matches
+	}
+
+	uObj.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(httpRoute)
+	require.NoError(t, err, "error converting HTTPRoute to unstructured object", ns, name)
 }
 
 // prepareGateway adjusts the gatewayClassName.
@@ -182,7 +224,7 @@ func (a Applier) prepareNamespace(t *testing.T, uObj *unstructured.Unstructured)
 
 // prepareResources uses the options from an Applier to tweak resources given by
 // a set of manifests.
-func (a Applier) prepareResources(t *testing.T, decoder *yaml.YAMLOrJSONDecoder) ([]unstructured.Unstructured, error) {
+func (a Applier) prepareResources(t *testing.T, decoder *yaml.YAMLOrJSONDecoder, httpRoutePathMatcher *string) ([]unstructured.Unstructured, error) {
 	var resources []unstructured.Unstructured
 
 	for {
@@ -203,7 +245,9 @@ func (a Applier) prepareResources(t *testing.T, decoder *yaml.YAMLOrJSONDecoder)
 		if uObj.GetKind() == "Gateway" {
 			a.prepareGateway(t, &uObj)
 		}
-
+		if uObj.GetKind() == "HTTPRoute" && httpRoutePathMatcher != nil {
+			a.prepareHTTPRoute(t, &uObj, httpRoutePathMatcher)
+		}
 		if uObj.GetKind() == "Namespace" && uObj.GetObjectKind().GroupVersionKind().Group == "" {
 			a.prepareNamespace(t, &uObj)
 		}
@@ -243,13 +287,13 @@ func (a Applier) MustApplyObjectsWithCleanup(t *testing.T, c client.Client, time
 // MustApplyWithCleanup creates or updates Kubernetes resources defined with the
 // provided YAML file and registers a cleanup function for resources it created.
 // Note that this does not remove resources that already existed in the cluster.
-func (a Applier) MustApplyWithCleanup(t *testing.T, c client.Client, timeoutConfig config.TimeoutConfig, location string, cleanup bool) {
+func (a Applier) MustApplyWithCleanup(t *testing.T, c client.Client, timeoutConfig config.TimeoutConfig, location string, cleanup bool, pathMatcher *string) {
 	data, err := getContentsFromPathOrURL(a.ManifestFS, location, timeoutConfig)
 	require.NoError(t, err)
 
 	decoder := yaml.NewYAMLOrJSONDecoder(data, 4096)
 
-	resources, err := a.prepareResources(t, decoder)
+	resources, err := a.prepareResources(t, decoder, pathMatcher)
 	if err != nil {
 		tlog.Logf(t, "manifest: %s", data.String())
 		require.NoErrorf(t, err, "error parsing manifest")

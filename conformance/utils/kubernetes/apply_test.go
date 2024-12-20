@@ -176,7 +176,7 @@ spec:
 
 			tc.applier.GatewayClass = "test-class"
 			tc.applier.ControllerName = "test-controller"
-			resources, err := tc.applier.prepareResources(t, decoder)
+			resources, err := tc.applier.prepareResources(t, decoder, nil)
 
 			require.NoError(t, err, "unexpected error preparing resources")
 			require.EqualValues(t, tc.expected, resources)

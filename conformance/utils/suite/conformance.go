@@ -21,7 +21,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/gateway-api/conformance/utils/tlog"
 	"sigs.k8s.io/gateway-api/pkg/features"
@@ -37,6 +39,7 @@ type ConformanceTest struct {
 	Parallel    bool
 	Test        func(*testing.T, *ConformanceTestSuite)
 	Provisional bool
+	PathMatcher *string
 }
 
 // Run runs an individual tests, applying and cleaning up the required manifests
@@ -44,6 +47,10 @@ type ConformanceTest struct {
 func (test *ConformanceTest) Run(t *testing.T, suite *ConformanceTestSuite) {
 	if test.Parallel {
 		t.Parallel()
+	}
+
+	if test.PathMatcher == nil {
+		test.PathMatcher = ptr.To(uuid.New().String()[:5])
 	}
 
 	var featuresInfo string
@@ -70,7 +77,7 @@ func (test *ConformanceTest) Run(t *testing.T, suite *ConformanceTestSuite) {
 
 	for _, manifestLocation := range test.Manifests {
 		tlog.Logf(t, "Applying %s", manifestLocation)
-		suite.Applier.MustApplyWithCleanup(t, suite.Client, suite.TimeoutConfig, manifestLocation, true)
+		suite.Applier.MustApplyWithCleanup(t, suite.Client, suite.TimeoutConfig, manifestLocation, true, test.PathMatcher)
 	}
 
 	if featuresInfo != "" {
